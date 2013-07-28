@@ -4,17 +4,7 @@ import org.scalatest.FunSuite
 import org.scalatest.junit.JUnitRunner
 import org.junit.runner.RunWith
 
-@RunWith(classOf[JUnitRunner])
 class PetRescueSagaTest extends FunSuite {
-
-  test("group function") {
-    val startTime = System.currentTimeMillis()
-    val board = PetRescueSagaBoardReader.readBoard("doc/level3.txt")
-    val endTime = System.currentTimeMillis()
-    println("generate took: " + (endTime - startTime))
-    println(board)
-  }
-
   val g = 'g'
   val r = 'r'
   val board = Board(Vector(
@@ -24,6 +14,16 @@ class PetRescueSagaTest extends FunSuite {
 
   val redBlock1 = Block(r, 2, 0, true, false)
   val redBlock2 = Block(r, 2, 1, true, false)
+
+
+  test("group function") {
+    val startTime = System.currentTimeMillis()
+    val board = PetRescueSagaBoardReader.readBoard("doc/level3.txt")
+    val endTime = System.currentTimeMillis()
+    println("generate took: " + (endTime - startTime))
+    println(board)
+    assert(board === this.board)
+  }
 
   test("click on block") {
     val (newBoard, score) = board.clickOnBlock(redBlock1)
@@ -60,8 +60,8 @@ class PetRescueSagaTest extends FunSuite {
       Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(' ',2,1,false,false), Block(g,3,1,true,false))
     ))
     val expectedBoard = Board(Vector(
-      Vector(Block(g,0,0,true,false), Block(g,1,0,true,false), Block(g,3,0,true,false)),
-      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(g,3,1,true,false))
+      Vector(Block(g,0,0,true,false), Block(g,1,0,true,false), Block(g,2,0,true,false), Block(' ', 3, 0, false, false)),
+      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(g,2,1,true,false), Block(' ', 3, 1, false, false))
     ))
 
     val newBoard = boardWithEmptySpaces.dropBlocks
@@ -92,12 +92,12 @@ class PetRescueSagaTest extends FunSuite {
 
   test("drop blocks: shift block left") {
     val boardWithEmptySpaces = Board(Vector(
-      Vector(Block(g,0,0,true,false), Block(' ',0,1,false,false), Block(' ',0,2,false,false)),
-      Vector(Block(g,0,1,true,false), Block(' ',1,1,false,false), Block(g,1,0,true,false))
+      Vector(Block(g,0,0,true,false), Block(' ',1,0,false,false), Block(' ',2,0,false,false)),
+      Vector(Block(g,0,1,true,false), Block(' ',1,1,false,false), Block(g,2,1,true,false))
     ))
     val expectedBoard = Board(Vector(
-      Vector(Block(g,0,0,true,false), Block(' ',0,1,false,false), Block(' ',0,2,false,false)),
-      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(' ',1,2,false,false))
+      Vector(Block(g,0,0,true,false), Block(' ',1,0,false,false), Block(' ',2,0,false,false)),
+      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(' ',2,1,false,false))
     ))
 
     val newBoard = boardWithEmptySpaces.dropBlocks
