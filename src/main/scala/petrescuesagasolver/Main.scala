@@ -2,11 +2,13 @@ package petrescuesagasolver
 
 import scala.annotation.tailrec
 
-object Main extends App {
-  val board = PetRescueSagaBoardReader.readBoard("doc/level2.txt")
-  val mostValuablePlay = measureAndPrintRunningTime(generateSolution(board))
 
+object Main extends App {
+  val board = PetRescueSagaBoardReader.readBoard("doc/level3.txt")
+  val mostValuablePlay = measureAndPrintRunningTime(generateSolution(board))
   val moves = mostValuablePlay._1
+
+  type Score = Int
   val score = mostValuablePlay._2
 
   printMoves(board, moves.reverse)
@@ -30,9 +32,9 @@ object Main extends App {
     }
   }
 
-  def generateSolution(board: Board): (List[Block], Int) = {
+  def generateSolution(board: Board): (List[Block], Score) = {
     @tailrec
-    def generateSolution(boardWithMoveList: List[(Board, List[Block], Int)], maximum: (List[Block], Int)): (List[Block], Int) = {
+    def generateSolution(boardWithMoveList: List[(Board, List[Block], Score)], maximum: (List[Block], Score)): (List[Block], Score) = {
       if (boardWithMoveList.isEmpty) {
         maximum
       }
@@ -59,7 +61,7 @@ object Main extends App {
     generateSolution(List((board, List(), 0)), (List(), 0))
   }
 
-  private def getCorrectedScoreForBoard(board: Board, score: Int): Int = {
+  private def getCorrectedScoreForBoard(board: Board, score: Score): Score = {
     if (board.hasNoColoredBlocks)
       score + 20000
     else
@@ -175,9 +177,11 @@ case class Board(board: Vector[Vector[Block]]) {
 
   private def findSlidableBlock: Option[Block] = {
     def hasColoredBlockInLine(block: Block): Boolean = {
-      allBlocksWithColor.exists(aBlock => aBlock.x == block.x && aBlock.filledWithColor)
+      val r = allBlocksWithColor.exists(aBlock => aBlock.x == block.x)
+      println(s"found slidable block? $r")
+      r
     }
-
+    println("finding slidable block!")
     for {
       boardLine <- board
       blockOnLine <- boardLine
@@ -219,6 +223,7 @@ case class Board(board: Vector[Vector[Block]]) {
   private def getBlockAtPos(x: Int, y: Int): Option[Block] = {
     if (x < 0 || x >= upperX || y < 0 || y >= upperY) None
     else Some(board(y)(x))
+// Deze code werkt als het board unbalanced mag zijn: board.lift(y).flatMap(_.lift(x))
   }
 
   def printBoard(): Unit = {
