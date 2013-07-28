@@ -177,11 +177,9 @@ case class Board(board: Vector[Vector[Block]]) {
 
   private def findSlidableBlock: Option[Block] = {
     def hasColoredBlockInLine(block: Block): Boolean = {
-      val r = allBlocksWithColor.exists(aBlock => aBlock.x == block.x)
-      println(s"found slidable block? $r")
-      r
+      allBlocksWithColor.exists(aBlock => aBlock.x == block.x)
     }
-    println("finding slidable block!")
+
     for {
       boardLine <- board
       blockOnLine <- boardLine
