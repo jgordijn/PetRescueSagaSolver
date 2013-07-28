@@ -96,13 +96,15 @@ class PetRescueSagaTest extends FunSuite {
       Vector(Block(g,0,1,true,false), Block(' ',1,1,false,false), Block(g,1,0,true,false))
     ))
     val expectedBoard = Board(Vector(
-      Vector(Block(g,0,0,true,false)),
-      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false))
+      Vector(Block(g,0,0,true,false), Block(' ',0,1,false,false), Block(' ',0,2,false,false)),
+      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(' ',1,2,false,false))
     ))
 
     val newBoard = boardWithEmptySpaces.dropBlocks
 
     println("ASDSAdsad")
+    println("Start:")
+    boardWithEmptySpaces.printBoard()
     println("Expected:")
     expectedBoard.printBoard()
     println("Actual:")
