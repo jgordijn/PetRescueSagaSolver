@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 
 
 object Main extends App {
-  val board = PetRescueSagaBoardReader.readBoard("doc/level3.txt")
+  val board = PetRescueSagaBoardReader.readBoard("doc/level2.txt")
   val mostValuablePlay = measureAndPrintRunningTime(generateSolution(board))
   val moves = mostValuablePlay._1
 
@@ -118,10 +118,20 @@ case class Board(board: Vector[Vector[Block]]) {
   }
 
   def dropBlocks: Board = {
-    def slideBlock(block: Block): Board = {
-      val blockLeftOf = getBlockLeftOf(block)
-      val boardWithBlocksSwitched = switchBlocks(block, blockLeftOf.get)
-      boardWithBlocksSwitched.dropBlocks
+    def slideRow(block: Block): Board = {
+      def slideBlock(block: Option[Block], board: Board): Board = {
+        block match {
+          case None => board
+          case Some(Block(' ', _, _, _, _)) => board
+          case Some(block) => {
+            val blockLeftOf = board.getBlockLeftOf(block)
+            val blockAboveOf = board.getBlockAbove(block)
+            val boardWithBlocksSwitched = board.switchBlocks(block, blockLeftOf.get)
+            slideBlock(blockAboveOf, boardWithBlocksSwitched)
+          }
+        }
+      }
+      slideBlock(Some(block), this).dropBlocks
     }
 
     def dropBlock(block: Block): Board = {
@@ -133,7 +143,7 @@ case class Board(board: Vector[Vector[Block]]) {
     val blockToSlideOption = findSlidableBlock
     if (blockToSlideOption.isDefined) {
       val blockToSlide = blockToSlideOption.get
-      slideBlock(blockToSlide)
+      slideRow(blockToSlide)
     }
     else {
       val blockToDropOption = findDroppableBlock
@@ -191,7 +201,7 @@ case class Board(board: Vector[Vector[Block]]) {
     None
   }
 
-  private def switchBlocks(block1: Block, block2: Block): Board = {
+  def switchBlocks(block1: Block, block2: Block): Board = {
     val newBlock1 = Block(block2.colorCode, block1.x, block1.y, block2.filledWithColor, block2.alreadyProcessed)
     val newBlock2 = Block(block1.colorCode, block2.x, block2.y, block1.filledWithColor, block1.alreadyProcessed)
     val newBoardLine1 = board(block1.y).updated(block1.x, newBlock1)
@@ -219,9 +229,9 @@ case class Board(board: Vector[Vector[Block]]) {
   private def getBlockRightOf(block: Block) = getBlockAtPos(block.x + 1, block.y)
 
   private def getBlockAtPos(x: Int, y: Int): Option[Block] = {
-    if (x < 0 || x >= upperX || y < 0 || y >= upperY) None
-    else Some(board(y)(x))
-// Deze code werkt als het board unbalanced mag zijn: board.lift(y).flatMap(_.lift(x))
+//    if (x < 0 || x >= upperX || y < 0 || y >= upperY) None
+//    else Some(board(y)(x))
+    board.lift(y).flatMap(_.lift(x))
   }
 
   def printBoard(): Unit = {

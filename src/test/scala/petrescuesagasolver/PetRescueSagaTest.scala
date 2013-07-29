@@ -29,8 +29,8 @@ class PetRescueSagaTest extends FunSuite {
     val (newBoard, score) = board.clickOnBlock(redBlock1)
     assert(score === 40)
     val expectedBoard = Board(Vector(
-      Vector(Block(g,0,0,true,false), Block(g,1,0,true,false), Block(g,3,0,true,false)),
-      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(g,3,1,true,false))
+      Vector(Block(g,0,0,true,false), Block(g,1,0,true,false), Block(g,2,0,true,false), Block(' ',3,0,false,false)),
+      Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(g,2,1,true,false), Block(' ',3,1,false,false))
     ))
 
     println("Expected:")
@@ -66,7 +66,8 @@ class PetRescueSagaTest extends FunSuite {
 
     val newBoard = boardWithEmptySpaces.dropBlocks
 
-    println("ASDSA")
+    println("Start:")
+    boardWithEmptySpaces.printBoard()
     println("Expected:")
     expectedBoard.printBoard()
     println("Actual:")
@@ -113,4 +114,21 @@ class PetRescueSagaTest extends FunSuite {
     assert(newBoard === expectedBoard)
   }
 
+  test("switch") {
+    val b = Board(Vector(Vector(Block(g,0,0,true,false), Block(g,1,0,true,false), Block(' ' ,2,0,false,false), Block(g,3,0,true,false)), Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(g,2,1,true,false), Block(' ',3,1,false,false))))
+    val expectedBoard = Board(Vector(
+                    Vector(Block(g,0,0,true,false), Block(g,1,0,true,false), Block(g,2,0,true,false), Block(' ',3,0,false,false)),
+                    Vector(Block(g,0,1,true,false), Block(g,1,1,true,false), Block(g,2,1,true,false), Block(' ',3,1,false,false))))
+    val newBoard = b.switchBlocks(Block(g,3,0,true,false), Block(' ',2,0,false,false))
+
+    println("ASDSAdsad")
+    println("Start:")
+    b.printBoard()
+    println("Expected:")
+    expectedBoard.printBoard()
+    println("Actual:")
+    newBoard.printBoard()
+
+    assert(newBoard === expectedBoard)
+  }
 }
