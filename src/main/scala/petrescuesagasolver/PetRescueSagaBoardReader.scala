@@ -1,5 +1,20 @@
 package petrescuesagasolver
 
+import akka.actor.Actor
+
+case class Read(fileName: String)
+
+class PetRescueSagaBoardReader extends Actor {
+  def receive = {
+    case Read(fileName) => {
+      println (s"received Read($fileName)")
+      val b = PetRescueSagaBoardReader.readBoard(fileName)
+      println("done")
+      sender ! b
+    }
+  }
+}
+
 object PetRescueSagaBoardReader {
   def readBoard(fileName: String): Board = {
     val fileLines: Vector[String] = scala.io.Source.fromFile(fileName).getLines().toVector
@@ -18,4 +33,5 @@ object PetRescueSagaBoardReader {
 
     Board(allBlocks.grouped(fileLines.head.length).toVector)
   }
+
 }

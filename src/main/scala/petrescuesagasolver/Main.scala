@@ -1,7 +1,232 @@
 package petrescuesagasolver
 
 import scala.annotation.tailrec
+import akka.actor._
+import java.util.UUID
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+import akka.util.Timeout
 
+import scala.Some
+
+case object Start
+
+object MainAkka extends App {
+  val system = ActorSystem("MySystem")
+  val master = system.actorOf(Props[Master], name = "master")
+  println("sending start")
+  system.scheduler.scheduleOnce(20.seconds) {
+    println("SHUTDOWN!!!!")
+    system.shutdown()
+  }
+  master ! Start
+}
+
+case class Move(block: Block, board: (Board, Int))
+
+case class Solution(board: Board, score: Int)
+
+case class Crush(block: Block, board: Board, score: Int)
+
+case class Crushed(board: Board, fieldSize: Int, score: Int)
+
+class CrushActor extends Actor {
+  def crush(color: Char, crushBlocks: List[Block], board: Board, fieldSize: Int): (Board, Int) = {
+    crushBlocks match {
+      case blk :: blks => {
+        if (board.board(blk.y)(blk.x).colorCode == color) {
+          val newb = board.board.updated(blk.y, board.board(blk.y).updated(blk.x, Block(' ', blk.x, blk.y, false, false)))
+          val neighBors = board.getBlocksAroundBlock(blk)
+          crush(color, blks ++ neighBors, Board(newb), fieldSize + 1)
+        } else {
+          crush(color, blks, board, fieldSize)
+        }
+      }
+      case Nil => (board, fieldSize)
+    }
+  }
+
+  def receive = {
+    case Crush(block, board, score) => {
+      val (newBoard, blocksCrushed) = crush(block.colorCode, List(block), board, 0)
+//      println(s"crushed: ${block.x}, ${block.y}" )
+//      newBoard.printBoard()
+      if(blocksCrushed > 1) {
+        sender ! Crushed(newBoard, blocksCrushed, score)
+      } else {
+        sender ! Crushed(board, 0, score)
+      }
+    }
+  }
+}
+
+case class ApplyDropRules(board: Board, score: Int)
+case class ApplySlideRules(board: Board, score: Int)
+
+case class Dropped(board: Board, score: Int)
+class DropActor extends Actor {
+  // x = column, y = row
+  def filterColumn(xColumn: Int, board: Board) = {
+    {for {y <- 0 until board.upperY} yield board.board(y)(xColumn)}.map(_.colorCode).filter(_ != ' ')
+  }
+  def putNewColumn(x: Int, row: Seq[Char], board: Board): Board = {
+    def putNewColumn(x: Int, row: Seq[Char], board: Board, y: Int): Board = {
+      if (y < board.upperY) {
+        val blockColor = row.lift(y)
+        blockColor match {
+          case None => {
+            val newBoard = board.board.updated(y, board.board(y).updated(x, Block(' ', x, y, false, false)))
+            putNewColumn(x, row, Board(newBoard), y + 1)
+          }
+          case Some(color) => {
+            val newBoard = board.board.updated(y, board.board(y).updated(x, Block(color, x, y, true, false)))
+            putNewColumn(x, row, Board(newBoard), y + 1)
+          }
+        }
+      }
+      else {
+        board
+      }
+    }
+    putNewColumn(x, row, board, 0)
+  }
+  def dropFloatingBlocksDown(board: Board): Board = {
+    def dropFloatingBlocksDownForColumn(x: Int, board: Board): Board = {
+      if(x < board.upperX) dropFloatingBlocksDownForColumn(x + 1, putNewColumn(x, filterColumn(x, board), board))
+      else board
+    }
+    dropFloatingBlocksDownForColumn(0, board)
+  }
+
+  def receive = {
+    case ApplyDropRules(board, score) => {
+      sender ! Dropped(dropFloatingBlocksDown(board), score)
+    }
+  }
+}
+
+case class Slid(board: Board, score: Int)
+class SlideActor extends Actor {
+
+  def findEmptyColumn(board: Board) : Option[Block] = {
+    val indexEmpty = board.board.last.indexWhere(_.colorCode == ' ')
+    if(indexEmpty == -1) None
+    else {
+      val indexNextSolid = board.board.last.indexWhere(_.colorCode != ' ', indexEmpty)
+      if(indexNextSolid == -1) None
+      else Some(board.board.last(indexEmpty))
+    }
+  }
+  def findLastNonEmpty(board: Board) : Option[Block] = {
+    board.board.last.reverse.find(_.colorCode != ' ')
+  }
+
+  def removeColumn(board: Board, x: Int) : Board = {
+    def removeColumn(board: Board, x: Int, row: Int) : Board = {
+      if(row < board.upperY) {
+        var newRowColors = board.board(row).filterNot(_.x == x).map(_.colorCode)
+        val newRow : Vector[Block] = for{x <- (0 until board.upperX).toVector} yield {
+          val color = newRowColors lift x
+          color match {
+            case None => {
+              Block(' ', x, row, false, false)
+            }
+            case Some(color) => {
+              Block(color, x, row, true, false)
+            }
+          }
+        }
+        removeColumn(Board(board.board.updated(row, newRow)), x, row + 1)
+      }
+      else board
+    }
+    removeColumn(board, x, 0)
+  }
+
+  def slideAllEmptyColumns(board: Board) : Board = {
+    val emptyColumn = findEmptyColumn(board)
+    emptyColumn match {
+      case None => board
+      case Some(block) => slideAllEmptyColumns(removeColumn(board, block.x))
+    }
+  }
+
+
+
+  def receive = {
+    case ApplySlideRules(board, score) => {
+      sender ! Slid(slideAllEmptyColumns(board), score)
+    }
+  }
+}
+
+case class Stepped(board: Board, score: Int, clickedBlocks: List[Block])
+
+class ClickActor extends Actor with ActorLogging {
+  val crushActor = context.actorOf(Props[CrushActor], name = "cruser")
+  val dropActor = context.actorOf(Props[DropActor], name = "drop")
+  val slideActor = context.actorOf(Props[SlideActor], name = "slide")
+  def moveScore(fieldSize: Int) = fieldSize * fieldSize * 10
+  var master : ActorRef = null
+
+  def receive = {
+    case Move(block, (board, score)) => {
+      master = sender
+      crushActor ! Crush(block, board, score)
+    }
+    case Crushed(board, fieldSize, score) => {
+      if (fieldSize == 0) {
+        master ! Solution(board, score)
+      }
+      else {
+        dropActor ! ApplyDropRules(board, score + moveScore(fieldSize))
+      }
+    }
+    case Dropped(board, score) => {
+      slideActor ! ApplySlideRules(board, score)
+    }
+    case Slid(board, score) => {
+      master ! Stepped(board, score, Nil)
+    }
+
+  }
+}
+
+case class Start(board: Board, score: Int)
+
+class Master extends Actor {
+  val reader = context.actorOf(Props[PetRescueSagaBoardReader], name = "reader")
+  val moveActor = context.actorOf(Props[ClickActor], name = "move")
+  var maxScore = 0
+
+  def receive = {
+    case Start(Board(b), score: Int) => {
+      for {
+        boardLine <- b
+        block <- boardLine
+      } {
+        if(block.colorCode != ' ') moveActor ! Move(block, (Board(b), score))
+      }
+    }
+    case board: Board => {
+      board.printBoard()
+      self ! Start(board, 0)
+    }
+    case Start => {
+      reader ! Read("doc/level2.txt")
+    }
+    case Stepped(b, s, blks) => {
+      self ! Start(b, s)
+    }
+    case Solution(Board(bs), score) => {
+      if (score > maxScore) {
+        println(s"\nScore: $score")
+        Board(bs).printBoard()
+      }
+      maxScore = Math.max(score, maxScore)
+    }
+  }
+}
 
 object Main extends App {
   val board = PetRescueSagaBoardReader.readBoard("doc/level2.txt")
@@ -215,7 +440,7 @@ case class Board(board: Vector[Vector[Block]]) {
     getBlocksAroundBlock(block).filter(_.colorCode == block.colorCode)
   }
 
-  private def getBlocksAroundBlock(block: Block): Set[Block] = {
+  def getBlocksAroundBlock(block: Block): Set[Block] = {
     val optionSetOfBlocksAround = Set(getBlockBelow(block), getBlockAbove(block), getBlockLeftOf(block), getBlockRightOf(block))
     optionSetOfBlocksAround.filter(_.isDefined).map(_.get)
   }
@@ -229,12 +454,13 @@ case class Board(board: Vector[Vector[Block]]) {
   private def getBlockRightOf(block: Block) = getBlockAtPos(block.x + 1, block.y)
 
   private def getBlockAtPos(x: Int, y: Int): Option[Block] = {
-//    if (x < 0 || x >= upperX || y < 0 || y >= upperY) None
-//    else Some(board(y)(x))
+    //    if (x < 0 || x >= upperX || y < 0 || y >= upperY) None
+    //    else Some(board(y)(x))
     board.lift(y).flatMap(_.lift(x))
   }
 
   def printBoard(): Unit = {
+
     board.map {
       boardLine => boardLine.map {
         block => block.colorCode match {
