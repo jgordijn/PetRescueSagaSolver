@@ -3,6 +3,7 @@ package petrescuesagasolver
 import akka.actor.Actor
 
 case class Read(fileName: String)
+case class ReadResult(board: Board)
 
 class PetRescueSagaBoardReader extends Actor {
   def receive = {
@@ -10,7 +11,7 @@ class PetRescueSagaBoardReader extends Actor {
       println (s"received Read($fileName)")
       val b = PetRescueSagaBoardReader.readBoard(fileName)
       println("done")
-      sender ! b
+      sender ! ReadResult(b)
     }
   }
 }

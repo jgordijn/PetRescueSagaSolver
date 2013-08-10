@@ -8,228 +8,130 @@ import scala.concurrent.duration._
 import akka.util.Timeout
 
 import scala.Some
+import akka.routing.RoundRobinRouter
 
 case object Start
+case class Solution(board: Board, score: Int, steps: List[(Block, Board)])
+case class Stepped(board: Board, score: Int, clickedBlocks: List[(Block, Board)])
+
+case class Start(board: Board, score: Int, steps: List[(Block, Board)])
 
 object MainAkka extends App {
   val system = ActorSystem("MySystem")
   val master = system.actorOf(Props[Master], name = "master")
   println("sending start")
-  system.scheduler.scheduleOnce(20.seconds) {
+  system.scheduler.scheduleOnce(500.seconds) {
     println("SHUTDOWN!!!!")
     system.shutdown()
   }
   master ! Start
 }
 
-case class Move(block: Block, board: (Board, Int))
-
-case class Solution(board: Board, score: Int)
-
-case class Crush(block: Block, board: Board, score: Int)
-
-case class Crushed(board: Board, fieldSize: Int, score: Int)
-
-class CrushActor extends Actor {
-  def crush(color: Char, crushBlocks: List[Block], board: Board, fieldSize: Int): (Board, Int) = {
-    crushBlocks match {
-      case blk :: blks => {
-        if (board.board(blk.y)(blk.x).colorCode == color) {
-          val newb = board.board.updated(blk.y, board.board(blk.y).updated(blk.x, Block(' ', blk.x, blk.y, false, false)))
-          val neighBors = board.getBlocksAroundBlock(blk)
-          crush(color, blks ++ neighBors, Board(newb), fieldSize + 1)
-        } else {
-          crush(color, blks, board, fieldSize)
-        }
-      }
-      case Nil => (board, fieldSize)
-    }
-  }
-
-  def receive = {
-    case Crush(block, board, score) => {
-      val (newBoard, blocksCrushed) = crush(block.colorCode, List(block), board, 0)
-//      println(s"crushed: ${block.x}, ${block.y}" )
-//      newBoard.printBoard()
-      if(blocksCrushed > 1) {
-        sender ! Crushed(newBoard, blocksCrushed, score)
-      } else {
-        sender ! Crushed(board, 0, score)
-      }
-    }
-  }
-}
-
-case class ApplyDropRules(board: Board, score: Int)
-case class ApplySlideRules(board: Board, score: Int)
-
-case class Dropped(board: Board, score: Int)
-class DropActor extends Actor {
-  // x = column, y = row
-  def filterColumn(xColumn: Int, board: Board) = {
-    {for {y <- 0 until board.upperY} yield board.board(y)(xColumn)}.map(_.colorCode).filter(_ != ' ')
-  }
-  def putNewColumn(x: Int, row: Seq[Char], board: Board): Board = {
-    def putNewColumn(x: Int, row: Seq[Char], board: Board, y: Int): Board = {
-      if (y < board.upperY) {
-        val blockColor = row.lift(y)
-        blockColor match {
-          case None => {
-            val newBoard = board.board.updated(y, board.board(y).updated(x, Block(' ', x, y, false, false)))
-            putNewColumn(x, row, Board(newBoard), y + 1)
-          }
-          case Some(color) => {
-            val newBoard = board.board.updated(y, board.board(y).updated(x, Block(color, x, y, true, false)))
-            putNewColumn(x, row, Board(newBoard), y + 1)
-          }
-        }
-      }
-      else {
-        board
-      }
-    }
-    putNewColumn(x, row, board, 0)
-  }
-  def dropFloatingBlocksDown(board: Board): Board = {
-    def dropFloatingBlocksDownForColumn(x: Int, board: Board): Board = {
-      if(x < board.upperX) dropFloatingBlocksDownForColumn(x + 1, putNewColumn(x, filterColumn(x, board), board))
-      else board
-    }
-    dropFloatingBlocksDownForColumn(0, board)
-  }
-
-  def receive = {
-    case ApplyDropRules(board, score) => {
-      sender ! Dropped(dropFloatingBlocksDown(board), score)
-    }
-  }
-}
-
-case class Slid(board: Board, score: Int)
-class SlideActor extends Actor {
-
-  def findEmptyColumn(board: Board) : Option[Block] = {
-    val indexEmpty = board.board.last.indexWhere(_.colorCode == ' ')
-    if(indexEmpty == -1) None
-    else {
-      val indexNextSolid = board.board.last.indexWhere(_.colorCode != ' ', indexEmpty)
-      if(indexNextSolid == -1) None
-      else Some(board.board.last(indexEmpty))
-    }
-  }
-  def findLastNonEmpty(board: Board) : Option[Block] = {
-    board.board.last.reverse.find(_.colorCode != ' ')
-  }
-
-  def removeColumn(board: Board, x: Int) : Board = {
-    def removeColumn(board: Board, x: Int, row: Int) : Board = {
-      if(row < board.upperY) {
-        var newRowColors = board.board(row).filterNot(_.x == x).map(_.colorCode)
-        val newRow : Vector[Block] = for{x <- (0 until board.upperX).toVector} yield {
-          val color = newRowColors lift x
-          color match {
-            case None => {
-              Block(' ', x, row, false, false)
-            }
-            case Some(color) => {
-              Block(color, x, row, true, false)
-            }
-          }
-        }
-        removeColumn(Board(board.board.updated(row, newRow)), x, row + 1)
-      }
-      else board
-    }
-    removeColumn(board, x, 0)
-  }
-
-  def slideAllEmptyColumns(board: Board) : Board = {
-    val emptyColumn = findEmptyColumn(board)
-    emptyColumn match {
-      case None => board
-      case Some(block) => slideAllEmptyColumns(removeColumn(board, block.x))
-    }
-  }
-
+class MoveMemory(master: ActorRef) extends Actor {
+  val moveActor = context.actorOf(Props[SimpleMoveActor].withRouter(RoundRobinRouter(nrOfInstances = 10)), name = "mover")
+  var memoryMap = collection.mutable.Map[(Block, Board), (Board, Int, List[(Block, Board)])]()
 
 
   def receive = {
-    case ApplySlideRules(board, score) => {
-      sender ! Slid(slideAllEmptyColumns(board), score)
-    }
-  }
-}
-
-case class Stepped(board: Board, score: Int, clickedBlocks: List[Block])
-
-class ClickActor extends Actor with ActorLogging {
-  val crushActor = context.actorOf(Props[CrushActor], name = "cruser")
-  val dropActor = context.actorOf(Props[DropActor], name = "drop")
-  val slideActor = context.actorOf(Props[SlideActor], name = "slide")
-  def moveScore(fieldSize: Int) = fieldSize * fieldSize * 10
-  var master : ActorRef = null
-
-  def receive = {
-    case Move(block, (board, score)) => {
-      master = sender
-      crushActor ! Crush(block, board, score)
-    }
-    case Crushed(board, fieldSize, score) => {
-      if (fieldSize == 0) {
-        master ! Solution(board, score)
-      }
-      else {
-        dropActor ! ApplyDropRules(board, score + moveScore(fieldSize))
+    case Move(block, (board, score), steps) => {
+      val possibleSolution = memoryMap get(block, board)
+      if(possibleSolution isDefined) {
+        println("HIT")
+        val solution = possibleSolution.get
+        sender ! Solution(solution._1, score + solution._2, solution._3 ++ steps)
+      }  else {
+        moveActor ! Move(block, (board, score), steps)
       }
     }
-    case Dropped(board, score) => {
-      slideActor ! ApplySlideRules(board, score)
+    case Solution(board, score, steps) => {
+      if(!steps.isEmpty) memoryMap put ((steps.head._1, board), (board, score, steps))
+      master ! Solution(board, score, steps)
     }
-    case Slid(board, score) => {
-      master ! Stepped(board, score, Nil)
-    }
+//    case Stepped(board, score, steps) =>  {
+//      memoryMap put ((steps.head._1, board), (board, score, steps))
+//      master ! Stepped(board, score, steps)
+//    }
+    case x => master ! x
 
   }
 }
-
-case class Start(board: Board, score: Int)
 
 class Master extends Actor {
   val reader = context.actorOf(Props[PetRescueSagaBoardReader], name = "reader")
-  val moveActor = context.actorOf(Props[ClickActor], name = "move")
+
+//  val fieldActor = context.actorOf(Props[FieldActor].withRouter(RoundRobinRouter(nrOfInstances = 10)), name = "field")
+//  val moveActor = context.actorOf(Props(new MoveMemory(self)), name = "memoryActor")
+//  val moveActor = context.actorOf(Props[SimpleMoveActor].withRouter(RoundRobinRouter(nrOfInstances = 10)), name = "mover")
+  val moveActor = context.actorOf(Props[SimpleMoveActor], name = "mover")
+
   var maxScore = 0
+  var startBoard: Board = null
+  var outStandingRequests = 0
+  var maxSolution: Solution = null
 
   def receive = {
-    case Start(Board(b), score: Int) => {
+    case Start(Board(b), score: Int, steps: List[(Block, Board)]) => {
       for {
         boardLine <- b
         block <- boardLine
       } {
-        if(block.colorCode != ' ') moveActor ! Move(block, (Board(b), score))
+        if(block.colorCode != ' ') {
+          moveActor ! Move(block, (Board(b), score), steps)
+          outStandingRequests = outStandingRequests + 1
+        }
       }
+      println("1: " + outStandingRequests)
     }
-    case board: Board => {
+
+    case ReadResult(board) => {
+      println("STARTING!")
       board.printBoard()
-      self ! Start(board, 0)
+      startBoard = board
+      self ! Start(board, 0, Nil)
     }
     case Start => {
       reader ! Read("doc/level2.txt")
     }
-    case Stepped(b, s, blks) => {
-      self ! Start(b, s)
+    case Stepped(b, s, steps) => {
+      outStandingRequests = outStandingRequests - 1
+      println("2: " + outStandingRequests)
+      self ! Start(b, s, steps)
     }
-    case Solution(Board(bs), score) => {
+    case Solution(Board(bs), score, steps) => {
+      outStandingRequests = outStandingRequests - 1
+      println("3: " + outStandingRequests)
       if (score > maxScore) {
+        println("NEW MAX SOLUTION")
+        startBoard.printBoard()
+        steps.reverse.map( (block: (Block, Board)) => {
+          println("MOVE " + block._1)
+          block._2.printBoard()
+        })
         println(s"\nScore: $score")
+        println(bs)
         Board(bs).printBoard()
+        maxSolution = Solution(Board(bs), score, steps)
       }
       maxScore = Math.max(score, maxScore)
+      if(outStandingRequests == 0) {
+        println("This is the SOLUTION: " + maxScore)
+        startBoard.printBoard()
+        maxSolution.steps.reverse.map( (block: (Block, Board)) => {
+          println("MOVE " + block._1)
+          block._2.printBoard()
+        })
+        println(s"\nScore: $maxScore")
+        println(bs)
+        maxSolution.board.printBoard()
+        context.system.shutdown();
+      }
     }
+    case x => throw new UnsupportedOperationException(s"Do not know: $x")
   }
 }
 
 object Main extends App {
-  val board = PetRescueSagaBoardReader.readBoard("doc/level2.txt")
+  val board = PetRescueSagaBoardReader.readBoard("doc/level3.txt")
   val mostValuablePlay = measureAndPrintRunningTime(generateSolution(board))
   val moves = mostValuablePlay._1
 
@@ -251,8 +153,9 @@ object Main extends App {
     board.printBoard()
 
     if (moves.nonEmpty) {
-      println("Making move: " + moves.head)
-      val newBoard = board.clickOnBlock(moves.head)._1
+      val moved = board.clickOnBlock(moves.head)
+      println(s"Making move: ${moves.head} (${moved._2}})")
+      val newBoard = moved._1
       printMoves(newBoard, moves.tail)
     }
   }
